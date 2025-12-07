@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
@@ -24,6 +25,11 @@ const (
 
 type dbResultMsg struct {
 	err error
+}
+
+type deleteResultMsg struct {
+	affected int64
+	err      error
 }
 
 type tablesResultMsg struct {
@@ -70,6 +76,9 @@ type Model struct {
 	filter        string
 	filterInput   textinput.Model
 	editingFilter bool
+
+	// delete
+	editingDelete bool
 
 	// terminal / scroll
 	width       int
@@ -141,6 +150,13 @@ func connectCmd(client db.DB, cfg db.ConnConfig) tea.Cmd {
 	}
 }
 
+func deleteRowsCmd(client db.DB, tableName string, where string) tea.Cmd {
+	return func() tea.Msg {
+		affected, err := client.DeleteRows(context.Background(), tableName, where)
+		return deleteResultMsg{affected: affected, err: err}
+	}
+}
+
 func listTablesCmd(client db.DB) tea.Cmd {
 	return func() tea.Msg {
 		tables, err := client.ListTables(context.Background())
@@ -190,6 +206,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.status = "Use ↑/↓ and Enter to select a table."
 		}
 		return m, nil
+
+	case deleteResultMsg:
+		m.loading = false
+		if msg.err != nil {
+			m.status = "Delete failed: " + msg.err.Error()
+			// stay in rows mode so user can adjust WHERE or try again
+			m.mode = modeRows
+			return m, nil
+		}
+
+		m.status = fmt.Sprintf("Deleted %d row(s). Reloading page...", msg.affected)
+		// reload current page with same filter & offset (offset may adjust logically via rowsResultMsg)
+		m.loading = true
+		return m, fetchRowsCmd(
+			m.dbClient,
+			m.selectedTable,
+			db.QueryOptions{
+				Limit:  m.pageSize,
+				Offset: m.offset,
+				Filter: m.filter,
+			},
+		)
 
 	// rows result (with pagination info)
 	case rowsResultMsg:
@@ -343,6 +381,31 @@ func (m Model) updateTablesKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // --- rows mode ---
 
 func (m Model) updateRowsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// editing delete WHERE clause
+	if m.editingDelete {
+		switch msg.String() {
+		case "esc", "ctrl+c":
+			m.editingDelete = false
+			m.status = "Delete cancelled. Press 'd' to delete again."
+			return m, nil
+
+		case "enter":
+			where := strings.TrimSpace(m.filterInput.Value())
+			if where == "" {
+				m.status = "WHERE clause cannot be empty for DELETE."
+				return m, nil
+			}
+			m.editingDelete = false
+			m.loading = true
+			m.status = "Deleting rows..."
+			return m, deleteRowsCmd(m.dbClient, m.selectedTable, where)
+		}
+
+		var cmd tea.Cmd
+		m.filterInput, cmd = m.filterInput.Update(msg)
+		return m, cmd
+	}
+
 	// editing filter
 	if m.editingFilter {
 		switch msg.String() {
@@ -403,6 +466,14 @@ func (m Model) updateRowsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				Filter: m.filter,
 			},
 		)
+	case "d":
+		m.editingDelete = true
+		m.editingFilter = false
+		m.filterInput.Prompt = "DELETE WHERE "
+		m.filterInput.SetValue("")
+		m.filterInput.Focus()
+		m.status = "Enter SQL WHERE clause for DELETE (without 'WHERE'). Enter to delete, Esc to cancel."
+		return m, nil
 
 	case "b":
 		m.mode = modeTables
@@ -410,6 +481,7 @@ func (m Model) updateRowsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "/":
 		m.editingFilter = true
+		m.editingDelete = false
 		m.filterInput.SetValue(m.filter)
 		m.filterInput.Focus()
 		m.status = "Enter SQL WHERE clause (without 'WHERE'). Enter to apply, Esc to cancel."
@@ -603,6 +675,10 @@ func (m Model) viewRows() string {
 
 	if m.editingFilter {
 		s += "\nFilter: " + m.filterInput.View() + "\n"
+	}
+
+	if m.editingDelete {
+		s += "\nDelete: " + m.filterInput.View() + "\n"
 	}
 
 	s += "\n" + m.status + "\n"

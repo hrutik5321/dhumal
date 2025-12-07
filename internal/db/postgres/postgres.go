@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/hrutik5321/dhumal/internal/db"
@@ -27,6 +28,25 @@ func (p *PostgresDB) buildDSN(cfg db.ConnConfig) string {
 		cfg.Port,
 		cfg.Database,
 	)
+}
+
+func (p *PostgresDB) DeleteRows(ctx context.Context, table string, where string) (int64, error) {
+	if p.pool == nil {
+		return 0, fmt.Errorf("database not connected")
+	}
+
+	if strings.TrimSpace(where) == "" {
+		return 0, fmt.Errorf("empty WHERE clause is not allowed for DELETE")
+	}
+
+	query := fmt.Sprintf(`DELETE FROM %s WHERE %s`, table, where)
+
+	cmdTag, err := p.pool.Exec(ctx, query)
+	if err != nil {
+		return 0, err
+	}
+
+	return cmdTag.RowsAffected(), nil
 }
 
 // Connect implements db.DB.

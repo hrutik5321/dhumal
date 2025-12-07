@@ -32,4 +32,5 @@ type DB interface {
 
 	ListTables(ctx context.Context) ([]string, error)
 	FetchRows(ctx context.Context, table string, opts QueryOptions) (RowPage, error)
+	DeleteRows(ctx context.Context, table string, where string) (int64, error)
 }
