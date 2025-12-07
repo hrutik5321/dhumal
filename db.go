@@ -6,8 +6,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // ----- DB helper: build DSN -----
@@ -22,31 +22,25 @@ func connectToDB(host, port, user, pass, db string) tea.Cmd {
 	dsn := buildDSN(host, port, user, pass, db)
 	return func() tea.Msg {
 		ctx := context.Background()
-		conn, err := pgx.Connect(ctx, dsn)
+		pool, err := pgxpool.New(ctx, dsn)
 		if err != nil {
 			return dbResultMsg{err: err}
 		}
-		defer conn.Close(ctx)
+		defer pool.Close()
 
-		if err := conn.Ping(ctx); err != nil {
+		if err := pool.Ping(ctx); err != nil {
 			return dbResultMsg{err: err}
 		}
 
-		return dbResultMsg{err: nil}
+		return dbResultMsg{pool: pool, err: nil}
 	}
 }
 
-func fetchTables(host, port, user, pass, db string) tea.Cmd {
-	dsn := buildDSN(host, port, user, pass, db)
+func fetchTables(pool *pgxpool.Pool) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
-		conn, err := pgx.Connect(ctx, dsn)
-		if err != nil {
-			return tablesResultMsg{err: err}
-		}
-		defer conn.Close(ctx)
 
-		rows, err := conn.Query(ctx, `
+		rows, err := pool.Query(ctx, `
 			SELECT table_name 
 			FROM information_schema.tables 
 			WHERE table_schema = 'public' AND table_type = 'BASE TABLE'
@@ -73,28 +67,21 @@ func fetchTables(host, port, user, pass, db string) tea.Cmd {
 	}
 }
 
-func fetchRows(host, port, user, pass, db, table string, offset, limit int) tea.Cmd {
-	dsn := buildDSN(host, port, user, pass, db)
+func fetchRows(pool *pgxpool.Pool, table string, offset, limit int) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
-		conn, err := pgx.Connect(ctx, dsn)
-		if err != nil {
-			return rowsResultMsg{err: err}
-		}
-		defer conn.Close(ctx)
 
 		// 1) Get total row count for pagination
 		var total int
 		countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM %s`, table)
-		if err := conn.QueryRow(ctx, countQuery).Scan(&total); err != nil {
+		if err := pool.QueryRow(ctx, countQuery).Scan(&total); err != nil {
 			return rowsResultMsg{err: err}
 		}
 
 		// 2) Fetch current page
-		// WARNING: in a real app, safely quote the table name
 		query := fmt.Sprintf(`SELECT * FROM %s LIMIT $1 OFFSET $2`, table)
 
-		rows, err := conn.Query(ctx, query, limit, offset)
+		rows, err := pool.Query(ctx, query, limit, offset)
 		if err != nil {
 			return rowsResultMsg{err: err}
 		}
