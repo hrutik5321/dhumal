@@ -5,6 +5,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // ----- Modes -----
@@ -20,7 +21,8 @@ const (
 // ----- Messages from async DB commands -----
 
 type dbResultMsg struct {
-	err error
+	pool *pgxpool.Pool
+	err  error
 }
 
 type tablesResultMsg struct {
@@ -45,6 +47,8 @@ type model struct {
 	userInput textinput.Model
 	passInput textinput.Model
 	dbInput   textinput.Model
+
+	pool *pgxpool.Pool
 
 	focusIndex int
 
@@ -102,7 +106,7 @@ func initialModel() model {
 		dbInput:    db,
 		focusIndex: 0,
 		mode:       modeForm,
-		status:     "Fill details and press Enter on DB field to connect.",
+		status:     "Fill details and press Enter to connect.",
 		pageSize:   10,
 		offset:     0,
 		totalRows:  0,
@@ -129,22 +133,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.mode = modeForm
 			return m, nil
 		}
+
+		m.pool = msg.pool
 		m.status = "Connected! Fetching tables..."
 		m.mode = modeTables
 		m.loading = true
 		return m, fetchTables(
-			m.hostInput.Value(),
-			m.portInput.Value(),
-			m.userInput.Value(),
-			m.passInput.Value(),
-			m.dbInput.Value(),
+			m.pool,
 		)
 
 	// tables result
 	case tablesResultMsg:
 		m.loading = false
 		if msg.err != nil {
-			m.status = "❌ Failed to fetch tables: " + msg.err.Error()
+			m.status = "Failed to fetch tables: " + msg.err.Error()
 			m.mode = modeForm
 			return m, nil
 		}
@@ -268,11 +270,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.horizOffset = 0
 				m.status = "Fetching rows from " + m.selectedTable + "..."
 				return m, fetchRows(
-					m.hostInput.Value(),
-					m.portInput.Value(),
-					m.userInput.Value(),
-					m.passInput.Value(),
-					m.dbInput.Value(),
+					m.pool,
 					m.selectedTable,
 					m.offset,
 					m.pageSize,
@@ -305,11 +303,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.loading = true
 				m.status = "Loading next page..."
 				return m, fetchRows(
-					m.hostInput.Value(),
-					m.portInput.Value(),
-					m.userInput.Value(),
-					m.passInput.Value(),
-					m.dbInput.Value(),
+					m.pool,
 					m.selectedTable,
 					nextOffset,
 					m.pageSize,
@@ -331,11 +325,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.loading = true
 				m.status = "Loading previous page..."
 				return m, fetchRows(
-					m.hostInput.Value(),
-					m.portInput.Value(),
-					m.userInput.Value(),
-					m.passInput.Value(),
-					m.dbInput.Value(),
+					m.pool,
 					m.selectedTable,
 					prevOffset,
 					m.pageSize,
@@ -486,7 +476,13 @@ func (m model) viewRows() string {
 // ----- main -----
 
 func main() {
-	if _, err := tea.NewProgram(initialModel()).Run(); err != nil {
+	p, err := tea.NewProgram(initialModel()).Run()
+
+	if err != nil {
 		panic(err)
+	}
+
+	if m, ok := p.(model); ok && m.pool != nil {
+		m.pool.Close()
 	}
 }
