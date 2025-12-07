@@ -1,8 +1,11 @@
-module github.com/hrutik5321/dbls
+module github.com/hrutik5321/dbls/cmd
 
 go 1.24.6
 
-require github.com/charmbracelet/bubbles v0.21.0
+require (
+	github.com/charmbracelet/bubbles v0.21.0
+	github.com/hrutik5321/dbls v1.0.0
+)
 
 require (
 	github.com/jackc/pgpassfile v1.0.0 // indirect
