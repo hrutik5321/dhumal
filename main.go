@@ -68,6 +68,10 @@ type model struct {
 	offset    int
 	totalRows int
 
+	filter        string
+	filterInput   textinput.Model
+	editingFilter bool
+
 	// terminal / scroll
 	width       int
 	horizOffset int
@@ -98,6 +102,10 @@ func initialModel() model {
 	db.Placeholder = "database name"
 	db.Prompt = "Database: "
 
+	filterInput := textinput.New()
+	filterInput.Placeholder = "id > 10 AND status = 'active'"
+	filterInput.Prompt = "WHERE "
+
 	m := model{
 		hostInput:  host,
 		portInput:  port,
@@ -110,6 +118,10 @@ func initialModel() model {
 		pageSize:   10,
 		offset:     0,
 		totalRows:  0,
+
+		filter:        "",
+		filterInput:   filterInput,
+		editingFilter: false,
 	}
 
 	m.hostInput.Focus()
@@ -163,7 +175,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case rowsResultMsg:
 		m.loading = false
 		if msg.err != nil {
-			m.status = "❌ Failed to fetch rows: " + msg.err.Error()
+			m.status = "Failed to fetch rows: " + msg.err.Error()
 			m.mode = modeTables
 			return m, nil
 		}
@@ -268,26 +280,82 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.loading = true
 				m.offset = 0
 				m.horizOffset = 0
+				m.filter = ""
 				m.status = "Fetching rows from " + m.selectedTable + "..."
 				return m, fetchRows(
 					m.pool,
 					m.selectedTable,
 					m.offset,
 					m.pageSize,
+					m.filter,
 				)
 			}
 			return m, nil
 
 		// ---------- ROWS MODE ----------
 		case modeRows:
+			if m.editingFilter {
+				switch msg.String() {
+				case "esc", "ctrl+c":
+					m.editingFilter = false
+					m.filter = ""
+					m.status = "Filter cancelled. Press '/' to filter again."
+					m.mode = modeRows
+					return m, fetchRows(m.pool,
+						m.selectedTable,
+						m.offset,
+						m.pageSize,
+						m.filter)
+				case "enter":
+					// Apply filter
+					m.filter = m.filterInput.Value()
+					m.editingFilter = false
+					m.offset = 0
+					m.loading = true
+					m.status = "Applying filter..."
+					return m, fetchRows(
+						m.pool,
+						m.selectedTable,
+						m.offset,
+						m.pageSize,
+						m.filter,
+					)
+				}
+
+				// Normal text input handling while editing filter
+				var cmd tea.Cmd
+				m.filterInput, cmd = m.filterInput.Update(msg)
+				return m, cmd
+			}
 			switch msg.String() {
 			case "ctrl+c", "q":
 				return m, tea.Quit
+
+			// remove filters
+			case "r":
+				m.filter = ""
+				m.offset = 0
+				m.loading = true
+				m.status = "Fetching rows from " + m.selectedTable + "..."
+				return m, fetchRows(
+					m.pool,
+					m.selectedTable,
+					m.offset,
+					m.pageSize,
+					m.filter,
+				)
 
 			case "b":
 				// back to tables
 				m.mode = modeTables
 				m.status = "Use ↑/↓ and Enter to select another table."
+
+			case "/":
+				m.editingFilter = true
+				m.filterInput.SetValue(m.filter)
+				m.filterInput.Focus()
+				m.status = "Enter SQL WHERE clause (without 'WHERE'). Enter to apply, Esc to cancel."
+				return m, nil
 
 			// pagination
 			case "n":
@@ -307,6 +375,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.selectedTable,
 					nextOffset,
 					m.pageSize,
+					m.filter,
 				)
 
 			case "p":
@@ -329,6 +398,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.selectedTable,
 					prevOffset,
 					m.pageSize,
+					m.filter,
 				)
 
 			// fast horizontal scroll
@@ -442,10 +512,18 @@ func (m model) viewTables() string {
 func (m model) viewRows() string {
 	s := fmt.Sprintf("Rows from table: %s\n\n", m.selectedTable)
 
+	if m.filter != "" {
+		s += fmt.Sprintf("Active filter: WHERE %s\n\n", m.filter)
+	}
+
 	if len(m.columns) == 0 {
 		s += "(No rows or columns found)\n"
 	} else {
 		s += renderTable(m.columns, m.rows)
+	}
+
+	if m.filter != "" {
+		s += "\nPress 'r' to refresh the table \n"
 	}
 
 	// Pagination info
@@ -464,6 +542,10 @@ func (m model) viewRows() string {
 		)
 	} else {
 		s += "\n(No rows)\n"
+	}
+
+	if m.editingFilter {
+		s += "\nFilter: " + m.filterInput.View() + "\n"
 	}
 
 	s += "\n" + m.status + "\n"

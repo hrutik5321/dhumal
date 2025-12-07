@@ -26,7 +26,6 @@ func connectToDB(host, port, user, pass, db string) tea.Cmd {
 		if err != nil {
 			return dbResultMsg{err: err}
 		}
-		defer pool.Close()
 
 		if err := pool.Ping(ctx); err != nil {
 			return dbResultMsg{err: err}
@@ -67,19 +66,25 @@ func fetchTables(pool *pgxpool.Pool) tea.Cmd {
 	}
 }
 
-func fetchRows(pool *pgxpool.Pool, table string, offset, limit int) tea.Cmd {
+func fetchRows(pool *pgxpool.Pool, table string, offset, limit int, filter string) tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
 
+		whereClause := ""
+		if filter != "" {
+			// NOTE: this is raw SQL from the user; fine for local tools.
+			whereClause = " WHERE " + filter
+		}
+
 		// 1) Get total row count for pagination
 		var total int
-		countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM %s`, table)
+		countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM %s%s`, table, whereClause)
 		if err := pool.QueryRow(ctx, countQuery).Scan(&total); err != nil {
 			return rowsResultMsg{err: err}
 		}
 
 		// 2) Fetch current page
-		query := fmt.Sprintf(`SELECT * FROM %s LIMIT $1 OFFSET $2`, table)
+		query := fmt.Sprintf(`SELECT * FROM %s%s LIMIT $1 OFFSET $2`, table, whereClause)
 
 		rows, err := pool.Query(ctx, query, limit, offset)
 		if err != nil {
