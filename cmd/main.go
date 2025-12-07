@@ -4,8 +4,8 @@ import (
 	"log"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/hrutik5321/dhumal/internal/app"
-	"github.com/hrutik5321/dhumal/internal/db/postgres"
+	"github.com/hrutik5321/dbls/internal/app"
+	"github.com/hrutik5321/dbls/internal/db/postgres"
 )
 
 func main() {

@@ -2,7 +2,7 @@ package app
 
 import (
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/hrutik5321/dhumal/internal/db"
+	"github.com/hrutik5321/dbls/internal/db"
 )
 
 func New(dbClient db.DB) tea.Model {

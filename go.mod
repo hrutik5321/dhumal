@@ -1,4 +1,4 @@
-module github.com/hrutik5321/dhumal
+module github.com/hrutik5321/dbls
 
 go 1.24.6
 

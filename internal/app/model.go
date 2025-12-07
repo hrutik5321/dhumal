@@ -7,8 +7,8 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
-	"github.com/hrutik5321/dhumal/internal/db"
-	"github.com/hrutik5321/dhumal/internal/ui/table"
+	"github.com/hrutik5321/dbls/internal/db"
+	"github.com/hrutik5321/dbls/internal/ui/table"
 )
 
 // ----- Modes -----
@@ -202,8 +202,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.tableCursor = 0
 		if len(msg.tables) == 0 {
 			m.status = "Connected but no tables found in public schema."
-		} else {
-			m.status = "Use ↑/↓ and Enter to select a table."
 		}
 		return m, nil
 
@@ -469,7 +467,7 @@ func (m Model) updateRowsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "d":
 		m.editingDelete = true
 		m.editingFilter = false
-		m.filterInput.Prompt = "DELETE WHERE "
+		// m.filterInput.Prompt = "DELETE WHERE "
 		m.filterInput.SetValue("")
 		m.filterInput.Focus()
 		m.status = "Enter SQL WHERE clause for DELETE (without 'WHERE'). Enter to delete, Esc to cancel."
@@ -482,6 +480,8 @@ func (m Model) updateRowsKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "/":
 		m.editingFilter = true
 		m.editingDelete = false
+		// m.filterInput.Prompt = "FILTER WHERE "
+		m.filterInput.Placeholder = "Add Your Filter Here"
 		m.filterInput.SetValue(m.filter)
 		m.filterInput.Focus()
 		m.status = "Enter SQL WHERE clause (without 'WHERE'). Enter to apply, Esc to cancel."
@@ -674,11 +674,28 @@ func (m Model) viewRows() string {
 	}
 
 	if m.editingFilter {
-		s += "\nFilter: " + m.filterInput.View() + "\n"
+		// 	input := m.filterInput.View()
+		// label := " DELETE WHERE "
+		// s += "\nFilter: " + m.filterInput.View() + "\n"
+		input := m.filterInput.View()
+		label := "Filter"
+
+		top := "┌" + strings.Repeat("─", len(input)+2) + "┐"
+		middle := "│ " + input + " "
+		bottom := "└" + strings.Repeat("─", len(input)+2) + "┘"
+
+		s += "\n" + label + "\n" + top + "\n" + middle + "\n" + bottom + "\n"
 	}
 
 	if m.editingDelete {
-		s += "\nDelete: " + m.filterInput.View() + "\n"
+		input := m.filterInput.View()
+		label := " DELETE "
+
+		top := "┌" + strings.Repeat("─", len(input)+2) + "┐"
+		middle := "│ " + input + " "
+		bottom := "└" + strings.Repeat("─", len(input)+2) + "┘"
+
+		s += "\n" + label + "\n" + top + "\n" + middle + "\n" + bottom + "\n"
 	}
 
 	s += "\n" + m.status + "\n"
